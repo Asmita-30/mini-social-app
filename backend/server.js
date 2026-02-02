@@ -40,10 +40,12 @@ const connectDB = async () => {
     console.log('🔗 Attempting to connect to MongoDB...');
 
     // Get MongoDB URI from environment variables
+    // FIXED: Using MONGODB_URI (matching your Render environment variable)
     let mongoURI = process.env.MONGODB_URI;
     
     if (!mongoURI) {
       console.log('⚠️  MONGODB_URI not found in environment variables');
+      console.log('📋 Available environment variables:', Object.keys(process.env).join(', '));
       console.log('💡 Using Demo Mode (no database required)');
       console.log('💡 To use MongoDB Atlas: Set MONGODB_URI in environment variables');
       return false;
@@ -52,10 +54,12 @@ const connectDB = async () => {
     console.log('✅ Using MongoDB URI from environment');
     // Log connection string (hide password)
     const safeURI = mongoURI.replace(/:\/\/[^:]+:[^@]+@/, '://***:***@');
-    console.log('URI:', safeURI);
+    console.log('🔗 URI:', safeURI);
 
     // For Mongoose 9+, connect with just the URI
-    await mongoose.connect(mongoURI);
+    await mongoose.connect(mongoURI, {
+      serverSelectionTimeoutMS: 10000, // 10 second timeout
+    });
     
     console.log('✅ MongoDB Connected Successfully!');
     console.log(`📊 Database: ${mongoose.connection.name}`);
@@ -74,6 +78,15 @@ const connectDB = async () => {
     } else if (error.message.includes('Authentication failed')) {
       console.log('🔐 Authentication failed - using DEMO MODE');
       console.log('💡 Check MongoDB Atlas username/password');
+    } else if (error.message.includes('bad auth')) {
+      console.log('🔐 Bad authentication - using DEMO MODE');
+      console.log('💡 Check MongoDB Atlas username/password');
+    } else if (error.message.includes('queryTxt')) {
+      console.log('🌐 DNS error - using DEMO MODE');
+      console.log('💡 Check your internet connection');
+    } else if (error.message.includes('Server selection')) {
+      console.log('⏰ Connection timeout - using DEMO MODE');
+      console.log('💡 MongoDB Atlas cluster might be paused');
     }
     
     return false; // Continue in demo mode
@@ -845,23 +858,30 @@ const startServer = async () => {
   try {
     const PORT = process.env.PORT || 10000;
     
+    console.log('\n' + '='.repeat(60));
+    console.log('🚀 Social Post App Backend Starting...');
+    console.log('='.repeat(60));
+    console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`📍 Port: ${PORT}`);
+    console.log(`🔗 URL: ${process.env.RENDER_EXTERNAL_URL || 'Not set'}`);
+    console.log('-'.repeat(60));
+    
     // Try to connect to MongoDB
     const dbConnected = await connectDB();
     
     app.listen(PORT, () => {
-      console.log('\n' + '='.repeat(50));
-      console.log('🚀 Social Post App Backend Started!');
-      console.log('='.repeat(50));
-      console.log(`📍 Port: ${PORT}`);
+      console.log('\n' + '='.repeat(60));
+      console.log('✅ Server Started Successfully!');
+      console.log('='.repeat(60));
       console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`📊 Database: ${dbConnected ? 'Connected ✅' : 'Demo Mode ⚠️'}`);
-      console.log(`🔗 URL: https://mini-social-backend-xj62.onrender.com`);
+      console.log(`🔗 Backend URL: https://mini-social-backend-xj62.onrender.com`);
       console.log(`📋 Local: http://localhost:${PORT}`);
-      console.log('-'.repeat(50));
+      console.log('-'.repeat(60));
       console.log('📋 Demo Credentials (always work):');
       console.log('   👤 Email: demo@example.com');
       console.log('   🔑 Password: demo123');
-      console.log('-'.repeat(50));
+      console.log('-'.repeat(60));
       console.log('📋 API Endpoints:');
       console.log('   GET  /                    - API Information');
       console.log('   GET  /api/health          - Health Check');
@@ -873,7 +893,7 @@ const startServer = async () => {
       console.log('   PUT  /api/posts/:id/like  - Like/Unlike Post');
       console.log('   POST /api/posts/:id/comment - Add Comment');
       console.log('   GET  /api/posts/user/:userId - Get User Posts');
-      console.log('='.repeat(50) + '\n');
+      console.log('='.repeat(60) + '\n');
     });
     
   } catch (error) {
