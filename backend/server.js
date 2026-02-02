@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -12,13 +11,15 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
-  'https://mini-social-frontend.onrender.com', // Your frontend when deployed
+  'https://mini-social-frontend.onrender.com',
   'https://mini-social-app-frontend.vercel.app'
 ];
 
 app.use(cors({
   origin: function(origin, callback) {
-    if (!origin) return callback(null, true); // mobile apps / curl
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
     if (allowedOrigins.includes(origin) || process.env.NODE_ENV === 'development') {
       callback(null, true);
     } else {
@@ -32,69 +33,126 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ----------------------------
-// MongoDB Connection
+// MongoDB Connection (Fixed for Mongoose v9+)
 // ----------------------------
 const connectDB = async () => {
   try {
     console.log('🔗 Attempting to connect to MongoDB...');
 
-    let mongoURI = process.env.MONGODB_URI; // Deployment env variable
+    // Get MongoDB URI from environment variables
+    let mongoURI = process.env.MONGODB_URI;
+    
     if (!mongoURI) {
-      console.log('⚠️  MONGODB_URI not found, defaulting to local MongoDB');
-      mongoURI = 'mongodb://127.0.0.1:27017/social_app';
-    } else {
-      console.log('Using MongoDB URI from environment');
-      console.log('URI:', mongoURI.replace(/:\/\/[^:]+:[^@]+@/, '://***:***@'));
+      console.log('⚠️  MONGODB_URI not found in environment variables');
+      console.log('💡 Using Demo Mode (no database required)');
+      console.log('💡 To use MongoDB Atlas: Set MONGODB_URI in environment variables');
+      return false;
     }
+    
+    console.log('✅ Using MongoDB URI from environment');
+    // Log connection string (hide password)
+    const safeURI = mongoURI.replace(/:\/\/[^:]+:[^@]+@/, '://***:***@');
+    console.log('URI:', safeURI);
 
-    await mongoose.connect(mongoURI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true
-    });
-
+    // For Mongoose 9+, connect with just the URI
+    await mongoose.connect(mongoURI);
+    
     console.log('✅ MongoDB Connected Successfully!');
     console.log(`📊 Database: ${mongoose.connection.name}`);
+    console.log(`🏢 Host: ${mongoose.connection.host}`);
+    
+    return true;
 
   } catch (error) {
     console.error('❌ MongoDB Connection Error:', error.message);
+    
     if (error.message.includes('ECONNREFUSED')) {
-      console.log('💡 Tip: Check MONGODB_URI or ensure local MongoDB is running');
+      console.log('🔌 Connection refused - using DEMO MODE');
+      console.log('💡 Check:');
+      console.log('   1. MongoDB Atlas connection string');
+      console.log('   2. Network Access in MongoDB Atlas (add IP 0.0.0.0/0)');
+    } else if (error.message.includes('Authentication failed')) {
+      console.log('🔐 Authentication failed - using DEMO MODE');
+      console.log('💡 Check MongoDB Atlas username/password');
     }
-    return false; // continue in demo mode
+    
+    return false; // Continue in demo mode
   }
-  return true;
 };
 
 // ----------------------------
-// Schemas
+// Database Schemas
 // ----------------------------
 const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now }
+  username: {
+    type: String,
+    required: true,
+    unique: true,
+    minlength: 3,
+    maxlength: 30
+  },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Please provide a valid email']
+  },
+  password: {
+    type: String,
+    required: true,
+    minlength: 6
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
 });
 
 const User = mongoose.model('User', userSchema);
 
 const postSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  username: { type: String, required: true },
-  text: { type: String },
-  imageUrl: { type: String },
-  likes: { type: [String], default: [] },
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  username: {
+    type: String,
+    required: true
+  },
+  text: {
+    type: String,
+    maxlength: 2000
+  },
+  imageUrl: {
+    type: String
+  },
+  likes: {
+    type: [String], // Array of usernames who liked
+    default: []
+  },
   comments: [{
     username: String,
-    text: String,
-    createdAt: { type: Date, default: Date.now }
+    text: {
+      type: String,
+      required: true,
+      maxlength: 500
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
   }],
-  createdAt: { type: Date, default: Date.now }
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
 });
 
 const Post = mongoose.model('Post', postSchema);
 
 // ----------------------------
-// Demo Mode Data
+// Demo Mode Data Storage
 // ----------------------------
 const demoUsers = [];
 const demoPosts = [
@@ -103,194 +161,725 @@ const demoPosts = [
     userId: 'demo-1',
     username: 'demo',
     text: 'Welcome to Social App! 🎉 This is a live demo post.',
+    imageUrl: null,
     likes: ['demo'],
+    comments: [
+      {
+        username: 'demo',
+        text: 'This is awesome!',
+        createdAt: new Date().toISOString()
+      }
+    ],
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'demo-2',
+    userId: 'demo-1',
+    username: 'demo',
+    text: 'You can register, login, create posts, like and comment!',
+    imageUrl: null,
+    likes: [],
     comments: [],
     createdAt: new Date().toISOString()
   }
 ];
 
 // ----------------------------
-// Helper
+// Helper Functions
 // ----------------------------
 const isUsingDatabase = () => mongoose.connection.readyState === 1;
 
 // ----------------------------
-// Routes
+// API Routes
 // ----------------------------
 
-// API Info
+// 1. Root Endpoint - API Information
 app.get('/', (req, res) => {
   res.json({
     message: '🚀 Social Post App Backend API',
+    version: '1.0.0',
     status: 'running',
     mode: isUsingDatabase() ? 'database' : 'demo',
-    environment: process.env.NODE_ENV || 'development'
-  });
-});
-
-// Health Check
-app.get('/api/health', (req, res) => {
-  res.json({
-    success: true,
-    mode: isUsingDatabase() ? 'database' : 'demo',
     environment: process.env.NODE_ENV || 'development',
+    database: isUsingDatabase() ? 'connected' : 'demo-mode',
+    endpoints: {
+      health: 'GET /api/health',
+      register: 'POST /api/auth/register',
+      login: 'POST /api/auth/login',
+      getPosts: 'GET /api/posts',
+      createPost: 'POST /api/posts',
+      likePost: 'PUT /api/posts/:id/like',
+      addComment: 'POST /api/posts/:id/comment'
+    },
+    demoCredentials: {
+      email: 'demo@example.com',
+      password: 'demo123'
+    },
     timestamp: new Date().toISOString()
   });
 });
 
-// ----------------------------
-// Auth Routes
-// ----------------------------
+// 2. Health Check Endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Server is healthy 🟢',
+    mode: isUsingDatabase() ? 'database' : 'demo',
+    environment: process.env.NODE_ENV || 'development',
+    database: isUsingDatabase() ? 'connected' : 'demo-mode',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
 
+// 3. Auth Routes
+
+// Register User
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
-    if (!username || !email || !password) return res.status(400).json({ success: false, message: 'All fields required' });
-
-    if (isUsingDatabase()) {
-      const exists = await User.findOne({ $or: [{ username }, { email }] });
-      if (exists) return res.status(400).json({ success: false, message: 'User already exists' });
-      const user = await User.create({ username, email, password });
-      return res.status(201).json({ success: true, user: { id: user._id, username: user.username, email: user.email } });
-    } else {
-      const exists = demoUsers.find(u => u.username === username || u.email === email);
-      if (exists) return res.status(400).json({ success: false, message: 'User exists (demo)' });
-      const newUser = { id: 'user-' + (demoUsers.length + 1), username, email, password };
-      demoUsers.push(newUser);
-      return res.status(201).json({ success: true, user: newUser, mode: 'demo' });
+    
+    // Validation
+    if (!username || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide username, email and password'
+      });
     }
-
+    
+    if (username.length < 3 || username.length > 30) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username must be between 3 and 30 characters'
+      });
+    }
+    
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters'
+      });
+    }
+    
+    if (isUsingDatabase()) {
+      // Database Mode
+      const existingUser = await User.findOne({ 
+        $or: [{ email }, { username }] 
+      });
+      
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'User with this email or username already exists'
+        });
+      }
+      
+      const user = await User.create({
+        username,
+        email,
+        password // In production, hash with bcrypt
+      });
+      
+      res.status(201).json({
+        success: true,
+        message: 'User registered successfully',
+        mode: 'database',
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          createdAt: user.createdAt
+        }
+      });
+      
+    } else {
+      // Demo Mode
+      const existingUser = demoUsers.find(u => 
+        u.email === email || u.username === username
+      );
+      
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'User already exists'
+        });
+      }
+      
+      const newUser = {
+        id: 'user-' + (demoUsers.length + 1),
+        username,
+        email,
+        password,
+        createdAt: new Date().toISOString()
+      };
+      
+      demoUsers.push(newUser);
+      
+      res.status(201).json({
+        success: true,
+        message: 'User registered successfully (demo mode)',
+        mode: 'demo',
+        user: {
+          id: newUser.id,
+          username: newUser.username,
+          email: newUser.email,
+          createdAt: newUser.createdAt
+        }
+      });
+    }
+    
   } catch (error) {
-    console.error('Register error:', error.message);
-    res.status(500).json({ success: false, message: 'Server error' });
+    console.error('Registration error:', error.message);
+    
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'User already exists'
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Server error during registration'
+    });
   }
 });
 
+// Login User
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ success: false, message: 'All fields required' });
-
+    
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email and password'
+      });
+    }
+    
+    // Default demo user (always works)
     if (email === 'demo@example.com' && password === 'demo123') {
-      return res.json({ success: true, message: 'Login demo', user: { id: 'demo-1', username: 'demo', email } });
+      return res.json({
+        success: true,
+        message: 'Login successful',
+        mode: 'demo',
+        token: 'demo-token-1',
+        user: {
+          id: 'demo-1',
+          username: 'demo',
+          email: 'demo@example.com'
+        }
+      });
     }
-
+    
     if (isUsingDatabase()) {
+      // Database Mode
       const user = await User.findOne({ email });
-      if (!user || user.password !== password) return res.status(401).json({ success: false, message: 'Invalid credentials' });
-      return res.json({ success: true, user: { id: user._id, username: user.username, email: user.email } });
+      
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid credentials'
+        });
+      }
+      
+      // In production, compare hashed password with bcrypt
+      if (user.password !== password) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid credentials'
+        });
+      }
+      
+      res.json({
+        success: true,
+        message: 'Login successful',
+        mode: 'database',
+        token: 'jwt-token-' + user._id,
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email
+        }
+      });
+      
     } else {
+      // Demo Mode
       const user = demoUsers.find(u => u.email === email && u.password === password);
-      if (!user) return res.status(401).json({ success: false, message: 'Invalid credentials (demo)' });
-      return res.json({ success: true, user, mode: 'demo' });
+      
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid credentials'
+        });
+      }
+      
+      res.json({
+        success: true,
+        message: 'Login successful',
+        mode: 'demo',
+        token: 'demo-token-' + user.id,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email
+        }
+      });
     }
-
+    
   } catch (error) {
     console.error('Login error:', error.message);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({
+      success: false,
+      message: 'Server error during login'
+    });
   }
 });
 
-// ----------------------------
-// Post Routes
-// ----------------------------
+// 4. Post Routes
 
+// Get All Posts
 app.get('/api/posts', async (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    
     if (isUsingDatabase()) {
-      const posts = await Post.find().sort({ createdAt: -1 }).limit(50);
-      return res.json({ success: true, count: posts.length, posts, mode: 'database' });
+      // Database Mode
+      const skip = (page - 1) * limit;
+      const posts = await Post.find()
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit);
+      
+      const total = await Post.countDocuments();
+      
+      res.json({
+        success: true,
+        count: posts.length,
+        total,
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        mode: 'database',
+        posts
+      });
+      
     } else {
-      return res.json({ success: true, count: demoPosts.length, posts: demoPosts, mode: 'demo' });
+      // Demo Mode
+      const startIndex = (page - 1) * limit;
+      const endIndex = page * limit;
+      const paginatedPosts = demoPosts.slice(startIndex, endIndex);
+      
+      res.json({
+        success: true,
+        count: paginatedPosts.length,
+        total: demoPosts.length,
+        totalPages: Math.ceil(demoPosts.length / limit),
+        currentPage: page,
+        mode: 'demo',
+        posts: paginatedPosts
+      });
     }
+    
   } catch (error) {
     console.error('Get posts error:', error.message);
-    res.status(500).json({ success: false, message: 'Error fetching posts' });
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching posts'
+    });
   }
 });
 
+// Create New Post
 app.post('/api/posts', async (req, res) => {
   try {
     const { userId, username, text, imageUrl } = req.body;
-    if (!userId || !username) return res.status(400).json({ success: false, message: 'User info required' });
-
-    if (isUsingDatabase()) {
-      const post = await Post.create({ userId, username, text, imageUrl });
-      return res.status(201).json({ success: true, post, mode: 'database' });
-    } else {
-      const newPost = { id: 'post-' + (demoPosts.length + 1), userId, username, text, imageUrl, likes: [], comments: [], createdAt: new Date().toISOString() };
-      demoPosts.unshift(newPost);
-      return res.status(201).json({ success: true, post: newPost, mode: 'demo' });
+    
+    // Validation
+    if (!userId || !username) {
+      return res.status(400).json({
+        success: false,
+        message: 'User information is required'
+      });
     }
+    
+    if (!text && !imageUrl) {
+      return res.status(400).json({
+        success: false,
+        message: 'Post must contain either text or image'
+      });
+    }
+    
+    if (text && text.length > 2000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Post text cannot exceed 2000 characters'
+      });
+    }
+    
+    if (isUsingDatabase()) {
+      // Database Mode
+      const post = await Post.create({
+        userId,
+        username,
+        text,
+        imageUrl
+      });
+      
+      res.status(201).json({
+        success: true,
+        message: 'Post created successfully',
+        mode: 'database',
+        post
+      });
+      
+    } else {
+      // Demo Mode
+      const newPost = {
+        id: 'post-' + (demoPosts.length + 1),
+        userId,
+        username,
+        text,
+        imageUrl,
+        likes: [],
+        comments: [],
+        createdAt: new Date().toISOString()
+      };
+      
+      demoPosts.unshift(newPost); // Add to beginning
+      
+      res.status(201).json({
+        success: true,
+        message: 'Post created successfully',
+        mode: 'demo',
+        post: newPost
+      });
+    }
+    
   } catch (error) {
     console.error('Create post error:', error.message);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({
+      success: false,
+      message: 'Error creating post'
+    });
   }
 });
 
-// ----------------------------
-// Like / Comment Routes
-// ----------------------------
+// Like/Unlike Post
 app.put('/api/posts/:id/like', async (req, res) => {
   try {
     const { username } = req.body;
-    if (!username) return res.status(400).json({ success: false, message: 'Username required' });
-
-    const posts = isUsingDatabase() ? await Post.findById(req.params.id) : demoPosts.find(p => p.id === req.params.id);
-    if (!posts) return res.status(404).json({ success: false, message: 'Post not found' });
-
-    const alreadyLiked = posts.likes.includes(username);
-    if (alreadyLiked) posts.likes = posts.likes.filter(l => l !== username);
-    else posts.likes.push(username);
-
-    if (isUsingDatabase()) await posts.save();
-    return res.json({ success: true, likes: posts.likes, mode: isUsingDatabase() ? 'database' : 'demo' });
+    
+    if (!username) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username is required'
+      });
+    }
+    
+    if (isUsingDatabase()) {
+      // Database Mode
+      const post = await Post.findById(req.params.id);
+      
+      if (!post) {
+        return res.status(404).json({
+          success: false,
+          message: 'Post not found'
+        });
+      }
+      
+      const alreadyLiked = post.likes.includes(username);
+      
+      if (alreadyLiked) {
+        // Unlike: remove username from likes array
+        post.likes = post.likes.filter(like => like !== username);
+      } else {
+        // Like: add username to likes array
+        post.likes.push(username);
+      }
+      
+      await post.save();
+      
+      res.json({
+        success: true,
+        message: alreadyLiked ? 'Post unliked' : 'Post liked',
+        mode: 'database',
+        likes: post.likes,
+        likeCount: post.likes.length
+      });
+      
+    } else {
+      // Demo Mode
+      const post = demoPosts.find(p => p.id === req.params.id);
+      
+      if (!post) {
+        return res.status(404).json({
+          success: false,
+          message: 'Post not found'
+        });
+      }
+      
+      const alreadyLiked = post.likes.includes(username);
+      
+      if (alreadyLiked) {
+        post.likes = post.likes.filter(like => like !== username);
+      } else {
+        post.likes.push(username);
+      }
+      
+      res.json({
+        success: true,
+        message: alreadyLiked ? 'Post unliked' : 'Post liked',
+        mode: 'demo',
+        likes: post.likes,
+        likeCount: post.likes.length
+      });
+    }
+    
   } catch (error) {
     console.error('Like error:', error.message);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
   }
 });
 
+// Add Comment to Post
 app.post('/api/posts/:id/comment', async (req, res) => {
   try {
     const { username, text } = req.body;
-    if (!username || !text) return res.status(400).json({ success: false, message: 'Username and text required' });
-
-    const posts = isUsingDatabase() ? await Post.findById(req.params.id) : demoPosts.find(p => p.id === req.params.id);
-    if (!posts) return res.status(404).json({ success: false, message: 'Post not found' });
-
-    const comment = { username, text, createdAt: new Date() };
-    posts.comments.push(comment);
-    if (isUsingDatabase()) await posts.save();
-
-    res.json({ success: true, comment, mode: isUsingDatabase() ? 'database' : 'demo' });
+    
+    if (!username || !text) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username and comment text are required'
+      });
+    }
+    
+    if (text.length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: 'Comment cannot exceed 500 characters'
+      });
+    }
+    
+    if (isUsingDatabase()) {
+      // Database Mode
+      const post = await Post.findById(req.params.id);
+      
+      if (!post) {
+        return res.status(404).json({
+          success: false,
+          message: 'Post not found'
+        });
+      }
+      
+      const comment = {
+        username,
+        text,
+        createdAt: new Date()
+      };
+      
+      post.comments.push(comment);
+      await post.save();
+      
+      res.json({
+        success: true,
+        message: 'Comment added successfully',
+        mode: 'database',
+        comment
+      });
+      
+    } else {
+      // Demo Mode
+      const post = demoPosts.find(p => p.id === req.params.id);
+      
+      if (!post) {
+        return res.status(404).json({
+          success: false,
+          message: 'Post not found'
+        });
+      }
+      
+      const comment = {
+        username,
+        text,
+        createdAt: new Date().toISOString()
+      };
+      
+      post.comments.push(comment);
+      
+      res.json({
+        success: true,
+        message: 'Comment added successfully',
+        mode: 'demo',
+        comment
+      });
+    }
+    
   } catch (error) {
     console.error('Comment error:', error.message);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
   }
 });
 
-// ----------------------------
-// 404 & Error Handler
-// ----------------------------
-app.use('*', (req, res) => res.status(404).json({ success: false, message: 'API endpoint not found' }));
+// Get Single Post
+app.get('/api/posts/:id', async (req, res) => {
+  try {
+    if (isUsingDatabase()) {
+      const post = await Post.findById(req.params.id);
+      
+      if (!post) {
+        return res.status(404).json({
+          success: false,
+          message: 'Post not found'
+        });
+      }
+      
+      res.json({
+        success: true,
+        mode: 'database',
+        post
+      });
+      
+    } else {
+      const post = demoPosts.find(p => p.id === req.params.id);
+      
+      if (!post) {
+        return res.status(404).json({
+          success: false,
+          message: 'Post not found'
+        });
+      }
+      
+      res.json({
+        success: true,
+        mode: 'demo',
+        post
+      });
+    }
+    
+  } catch (error) {
+    console.error('Get post error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching post'
+    });
+  }
+});
 
+// Get User's Posts
+app.get('/api/posts/user/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    if (isUsingDatabase()) {
+      const posts = await Post.find({ userId })
+        .sort({ createdAt: -1 })
+        .limit(50);
+      
+      res.json({
+        success: true,
+        count: posts.length,
+        mode: 'database',
+        posts
+      });
+      
+    } else {
+      const userPosts = demoPosts.filter(p => p.userId === userId);
+      
+      res.json({
+        success: true,
+        count: userPosts.length,
+        mode: 'demo',
+        posts: userPosts
+      });
+    }
+    
+  } catch (error) {
+    console.error('Get user posts error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching user posts'
+    });
+  }
+});
+
+// 5. 404 Handler
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'API endpoint not found',
+    requestedUrl: req.originalUrl
+  });
+});
+
+// 6. Error Handler
 app.use((err, req, res, next) => {
   console.error('Server error:', err.message);
-  res.status(500).json({ success: false, message: 'Internal server error' });
+  
+  // Handle CORS errors
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({
+      success: false,
+      message: 'CORS Error: Origin not allowed'
+    });
+  }
+  
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
 });
 
 // ----------------------------
 // Start Server
 // ----------------------------
 const startServer = async () => {
-  const PORT = process.env.PORT || 10000;
-  await connectDB();
-  app.listen(PORT, () => {
-    console.log(`🎉 Server running on port ${PORT}`);
-    console.log(`MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected ✅' : 'Demo ⚠️'}`);
-    console.log(`URL: https://mini-social-backend-xj62.onrender.com`);
-  });
+  try {
+    const PORT = process.env.PORT || 10000;
+    
+    // Try to connect to MongoDB
+    const dbConnected = await connectDB();
+    
+    app.listen(PORT, () => {
+      console.log('\n' + '='.repeat(50));
+      console.log('🚀 Social Post App Backend Started!');
+      console.log('='.repeat(50));
+      console.log(`📍 Port: ${PORT}`);
+      console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`📊 Database: ${dbConnected ? 'Connected ✅' : 'Demo Mode ⚠️'}`);
+      console.log(`🔗 URL: https://mini-social-backend-xj62.onrender.com`);
+      console.log(`📋 Local: http://localhost:${PORT}`);
+      console.log('-'.repeat(50));
+      console.log('📋 Demo Credentials (always work):');
+      console.log('   👤 Email: demo@example.com');
+      console.log('   🔑 Password: demo123');
+      console.log('-'.repeat(50));
+      console.log('📋 API Endpoints:');
+      console.log('   GET  /                    - API Information');
+      console.log('   GET  /api/health          - Health Check');
+      console.log('   POST /api/auth/register   - Register User');
+      console.log('   POST /api/auth/login      - Login User');
+      console.log('   GET  /api/posts           - Get All Posts');
+      console.log('   POST /api/posts           - Create Post');
+      console.log('   GET  /api/posts/:id       - Get Single Post');
+      console.log('   PUT  /api/posts/:id/like  - Like/Unlike Post');
+      console.log('   POST /api/posts/:id/comment - Add Comment');
+      console.log('   GET  /api/posts/user/:userId - Get User Posts');
+      console.log('='.repeat(50) + '\n');
+    });
+    
+  } catch (error) {
+    console.error('❌ Failed to start server:', error.message);
+    process.exit(1);
+  }
 };
 
 startServer();
